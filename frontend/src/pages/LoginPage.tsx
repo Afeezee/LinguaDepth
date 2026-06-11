@@ -31,7 +31,7 @@ export default function LoginPage() {
         tab === 'login' ? { email, password } : { name, email, password }
       const { data } = await client.post(endpoint, body)
       login(data.user, data.token)
-      navigate(data.needs_placement ? '/placement' : '/dashboard')
+      navigate(data.user?.is_admin ? '/dashboard' : data.needs_placement ? '/placement' : '/dashboard')
     } catch (err: any) {
       setError(
         err.response?.data?.error ?? 'Something went wrong. Please try again.',

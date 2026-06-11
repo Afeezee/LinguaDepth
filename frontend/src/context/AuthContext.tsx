@@ -52,7 +52,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('token')
     const userJson = localStorage.getItem('user')
     if (token && userJson) {
-      dispatch({ type: 'LOGIN', user: JSON.parse(userJson), token })
+      const parsedUser = JSON.parse(userJson) as User
+      dispatch({ type: 'LOGIN', user: parsedUser, token })
+
+      client
+        .get('/auth/me')
+        .then(({ data }) => {
+          localStorage.setItem('user', JSON.stringify(data.user))
+          dispatch({ type: 'UPDATE_USER', user: data.user })
+        })
+        .catch(() => {
+          localStorage.removeItem('token')
+          localStorage.removeItem('user')
+          dispatch({ type: 'LOGOUT' })
+        })
     } else {
       dispatch({ type: 'LOADED' })
     }

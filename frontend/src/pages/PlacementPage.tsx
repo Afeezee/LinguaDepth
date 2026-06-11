@@ -17,7 +17,7 @@ export default function PlacementPage() {
   const [loading, setLoading] = useState(true)
   const [loadProgress, setLoadProgress] = useState(12)
   const [loadError, setLoadError] = useState('')
-  const { refreshUser } = useAuth()
+  const { user, refreshUser } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -147,6 +147,13 @@ export default function PlacementPage() {
           <p className="text-gray-500">
             Answer these 10 questions — no pressure.
           </p>
+          {user?.is_admin && (
+            <div className="mt-4">
+              <Button variant="ghost" onClick={() => navigate('/admin')}>
+                Open Admin Dashboard
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="mb-6">
