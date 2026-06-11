@@ -56,10 +56,11 @@ npm run dev                     # runs on http://localhost:5173
 
 ## Deploy on Railway
 
-This repository is set up to deploy as a single Railway service:
+This repository is set up to deploy as a single Railway service with the root
+`Dockerfile`:
 
-- Railway installs Python dependencies from `backend/requirements.txt`
-- Railway builds the React app in `frontend/`
+- Docker builds the React app in `frontend/`
+- Docker installs Python dependencies from `backend/requirements.txt`
 - Flask serves the compiled frontend from `frontend/dist`
 - Gunicorn binds to Railway's `$PORT`
 
@@ -76,10 +77,9 @@ DATABASE_URL=<Railway Postgres connection string>
 Notes:
 
 - Add a Railway Postgres service before first production run. SQLite on Railway is ephemeral.
+- Railway should use the repo-root `Dockerfile`; the old Nixpacks path is not required.
 - `CORS_ORIGINS` is only needed if you later split frontend and backend into separate services.
 - After provisioning the database, seed lessons and starter questions against the production database.
-
-### Train the ML model (after collecting pilot data)
 
 ```bash
 cd backend
