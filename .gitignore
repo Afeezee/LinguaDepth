@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+backend/instance/
+backend/linguadepth.db
+backend/ml/model.pkl
+
+# Node
+node_modules/
+frontend/dist/
+
+# Env
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+.DS_Store
