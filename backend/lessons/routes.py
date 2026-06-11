@@ -64,6 +64,16 @@ def placement_quiz():
         random.shuffle(extra)
         questions.extend(extra[: 10 - len(questions)])
 
+    if not questions:
+        return (
+            jsonify(
+                {
+                    "error": "Placement quiz unavailable. Seed starter questions first."
+                }
+            ),
+            503,
+        )
+
     random.shuffle(questions)
     return jsonify([q.to_dict() for q in questions[:10]])
 

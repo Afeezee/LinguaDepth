@@ -79,7 +79,8 @@ Notes:
 - Add a Railway Postgres service before first production run. SQLite on Railway is ephemeral.
 - Railway should use the repo-root `Dockerfile`; the old Nixpacks path is not required.
 - `CORS_ORIGINS` is only needed if you later split frontend and backend into separate services.
-- After provisioning the database, seed lessons and starter questions against the production database.
+- On first boot, the container now seeds lessons and starter objective questions automatically when the database is empty.
+- For richer production content, run `python seed/seed_questions.py` against the production database after deployment.
 
 ```bash
 cd backend
