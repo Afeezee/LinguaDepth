@@ -13,7 +13,7 @@ answers, and powers a conversational practice chatbox.
 | Backend | Flask (Python 3.11) + SQLAlchemy |
 | Database | SQLite (dev) — PostgreSQL-compatible schema |
 | ML | scikit-learn Random Forest proficiency classifier |
-| LLM | Groq API (`llama-4-scout-17b-16e-instruct`) |
+| LLM | Groq API (`qwen/qwen3.8-27b`, override via `GROQ_MODEL`) |
 | Speech | Browser Web Speech API (TTS + STT, Chrome/Edge) |
 | Auth | JWT (24h expiry) |
 

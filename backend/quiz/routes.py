@@ -1,3 +1,5 @@
+import json
+import logging
 import random
 from datetime import date, datetime, timedelta
 
@@ -7,11 +9,34 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from llm.grader import grade_theory_answer
 from llm.validator import validate_oral_answer
 from ml.classifier import ProficiencyClassifier
-from models import Lesson, Progress, Question, Session, SessionAnswer, User, db
+from models import (
+    Lesson,
+    Progress,
+    Question,
+    SeenQuestion,
+    Session,
+    SessionAnswer,
+    User,
+    db,
+)
+
+logger = logging.getLogger(__name__)
 
 quiz_bp = Blueprint("quiz", __name__)
 
 MAX_QUESTIONS_PER_QUIZ = 5
+# Distribution of MAX_QUESTIONS_PER_QUIZ across the (up to two) quiz types
+# assigned to a lesson. If a lesson has just one assigned type, that type
+# gets all MAX_QUESTIONS_PER_QUIZ. If it has two, the split below picks
+# roughly-even counts, favouring the first-listed type by one.
+def _split_per_type(types: list) -> dict:
+    if not types:
+        return {}
+    if len(types) == 1:
+        return {types[0]: MAX_QUESTIONS_PER_QUIZ}
+    a = (MAX_QUESTIONS_PER_QUIZ + 1) // 2  # 3 out of 5
+    b = MAX_QUESTIONS_PER_QUIZ - a          # 2 out of 5
+    return {types[0]: a, types[1]: b}
 
 XP_OBJECTIVE_CORRECT = 10
 XP_THEORY_PASS = 15
@@ -35,6 +60,97 @@ def _difficulty_for_user(user_id):
     return "hard"
 
 
+def _select_questions_for_type(
+    user_id: int,
+    lesson_id: int,
+    quiz_type: str,
+    difficulty_band: str,
+    count: int,
+) -> list:
+    """Pick ``count`` questions for one lesson × type slot without repeats.
+
+    Order of preference:
+      1. Unseen questions at the user's current difficulty band.
+      2. If not enough remain, widen to unseen questions at any difficulty.
+      3. Only if the entire pool for this lesson × type has been served
+         to this user, fall back to the least-recently-seen questions,
+         oldest first, and log the exhaustion event.
+    """
+    seen_select = db.session.query(SeenQuestion.question_id).filter_by(
+        user_id=user_id
+    )
+
+    band_pool = (
+        Question.query.filter(
+            Question.lesson_id == lesson_id,
+            Question.type == quiz_type,
+            Question.difficulty == difficulty_band,
+            ~Question.id.in_(seen_select),
+        )
+        .all()
+    )
+
+    if len(band_pool) < count:
+        # Widen to unseen questions at any difficulty in the same lesson × type
+        wider = (
+            Question.query.filter(
+                Question.lesson_id == lesson_id,
+                Question.type == quiz_type,
+                ~Question.id.in_(seen_select),
+            )
+            .all()
+        )
+        # De-duplicate while preserving the band-preference order
+        band_ids = {q.id for q in band_pool}
+        for q in wider:
+            if q.id not in band_ids:
+                band_pool.append(q)
+                band_ids.add(q.id)
+
+    if len(band_pool) < count:
+        # Absolute last resort: pool genuinely exhausted for this user on
+        # this lesson × type. Serve least-recently-seen questions, oldest
+        # first, to at least minimise back-to-back repetition.
+        logger.warning(
+            "Question pool exhausted for user=%s lesson=%s type=%s",
+            user_id,
+            lesson_id,
+            quiz_type,
+        )
+        needed = count - len(band_pool)
+        already_picked = {q.id for q in band_pool}
+        lru = (
+            db.session.query(Question)
+            .join(SeenQuestion, SeenQuestion.question_id == Question.id)
+            .filter(
+                Question.lesson_id == lesson_id,
+                Question.type == quiz_type,
+                SeenQuestion.user_id == user_id,
+                ~Question.id.in_(already_picked) if already_picked else True,
+            )
+            .order_by(SeenQuestion.seen_at.asc())
+            .limit(needed)
+            .all()
+        )
+        band_pool.extend(lru)
+
+    random.shuffle(band_pool)
+    selected = band_pool[:count]
+
+    # Record the selected questions as seen immediately, so a page refresh
+    # mid-quiz doesn't re-serve the same set. The unique (user, question)
+    # constraint means fallback re-serves silently succeed on re-insert.
+    for q in selected:
+        try:
+            db.session.add(SeenQuestion(user_id=user_id, question_id=q.id))
+            db.session.flush()
+        except Exception:
+            db.session.rollback()
+    db.session.commit()
+
+    return selected
+
+
 @quiz_bp.route("/start", methods=["POST"])
 @jwt_required()
 def start_quiz():
@@ -46,30 +162,32 @@ def start_quiz():
     if not lesson:
         return jsonify({"error": "Lesson not found"}), 404
 
-    difficulty = _difficulty_for_user(user.id)
-
-    answered_ids = {
+    lesson_quiz_types = json.loads(lesson.quiz_types) or ["objective"]
+    # Only ask for types that actually have questions in the pool. This keeps
+    # the request stable if a lesson lists a type the LLM never filled.
+    available_types = {
         row[0]
-        for row in db.session.query(SessionAnswer.question_id)
-        .join(Session, SessionAnswer.session_id == Session.id)
-        .filter(Session.user_id == user.id)
+        for row in db.session.query(Question.type)
+        .filter_by(lesson_id=lesson.id)
+        .distinct()
         .all()
     }
-
-    pool = Question.query.filter_by(lesson_id=lesson.id).all()
-    if not pool:
+    active_types = [t for t in lesson_quiz_types if t in available_types]
+    if not active_types:
         return jsonify({"error": "No questions available for this lesson"}), 404
-    random.shuffle(pool)
 
-    # Prefer the user's difficulty band and questions they haven't seen yet;
-    # only repeat already-answered questions when the lesson has nothing new.
-    tiers = [
-        [q for q in pool if q.difficulty == difficulty and q.id not in answered_ids],
-        [q for q in pool if q.difficulty != difficulty and q.id not in answered_ids],
-        [q for q in pool if q.difficulty == difficulty and q.id in answered_ids],
-        [q for q in pool if q.difficulty != difficulty and q.id in answered_ids],
-    ]
-    questions = [q for tier in tiers for q in tier][:MAX_QUESTIONS_PER_QUIZ]
+    difficulty = _difficulty_for_user(user.id)
+    split = _split_per_type(active_types)
+
+    questions = []
+    for qtype, count in split.items():
+        questions.extend(
+            _select_questions_for_type(user.id, lesson.id, qtype, difficulty, count)
+        )
+
+    if not questions:
+        return jsonify({"error": "No questions available for this lesson"}), 404
+
     random.shuffle(questions)
 
     session = Session(

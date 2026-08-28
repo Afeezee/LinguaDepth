@@ -118,6 +118,17 @@ export default function LoginPage() {
               {tab === 'login' ? 'Log In' : 'Start Learning'}
             </Button>
           </form>
+
+          {tab === 'login' && (
+            <p className="mt-4 text-center text-sm text-gray-500">
+              <Link
+                to="/forgot-password"
+                className="font-semibold text-emerald-600 hover:underline"
+              >
+                Forgot your password?
+              </Link>
+            </p>
+          )}
         </Card>
 
         <p className="mt-6 text-center text-sm text-gray-500">

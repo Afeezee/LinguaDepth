@@ -39,6 +39,8 @@ export interface Lesson {
   id: number
   title: string
   content: string
+  content_markdown?: string
+  estimated_minutes?: number
   level: Level
   topic: string
   path_type: 'core' | 'level_path'

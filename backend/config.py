@@ -29,7 +29,11 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-    GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+    # Llama 4 Scout was decommissioned and qwen/qwen3-32b was deprecated on
+    # 2026-06-17. Default to the newer Qwen 3.8 preview currently live on
+    # Groq; swap to qwen/qwen3.6-27b via GROQ_MODEL in .env if you'd rather
+    # stay on the older preview, or override to whatever new SKU lands next.
+    GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
     CORS_ORIGINS = [
         origin.strip()

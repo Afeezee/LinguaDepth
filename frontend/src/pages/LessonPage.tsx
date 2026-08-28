@@ -78,15 +78,22 @@ export default function LessonPage() {
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="h-fit lg:sticky lg:top-20">
-            <h2 className="mb-2 px-3 text-xs font-bold uppercase tracking-wide text-gray-500">
-              Core Lessons
-            </h2>
-            <div className="mb-4 space-y-1">{core.map(renderItem)}</div>
+            {/*
+              With 28 lessons per level path plus 5 core, the sidebar can
+              exceed the viewport on shorter screens. Cap its height and let
+              the list scroll internally so the sticky card stays anchored.
+            */}
+            <div className="max-h-[calc(100vh-8rem)] overflow-y-auto pr-1">
+              <h2 className="mb-2 px-3 text-xs font-bold uppercase tracking-wide text-gray-500">
+                Core Lessons
+              </h2>
+              <div className="mb-4 space-y-1">{core.map(renderItem)}</div>
 
-            <h2 className="mb-2 px-3 text-xs font-bold uppercase tracking-wide text-gray-500">
-              Your Level Path
-            </h2>
-            <div className="space-y-1">{path.map(renderItem)}</div>
+              <h2 className="mb-2 px-3 text-xs font-bold uppercase tracking-wide text-gray-500">
+                Your Level Path ({path.length})
+              </h2>
+              <div className="space-y-1">{path.map(renderItem)}</div>
+            </div>
           </Card>
 
           <div className="lg:col-span-2">

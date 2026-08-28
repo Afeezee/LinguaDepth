@@ -39,7 +39,11 @@ class Lesson(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     title = db.Column(db.Text, nullable=False)
+    # `content` is kept for backward compatibility and TTS-safe plaintext.
+    # The source of truth for on-screen lesson body is `content_markdown`.
     content = db.Column(db.Text, nullable=False)
+    content_markdown = db.Column(db.Text, nullable=False, default="")
+    estimated_minutes = db.Column(db.Integer, default=5)
     level = db.Column(db.Text, nullable=False)  # beginner | intermediate | advanced
     topic = db.Column(db.Text, nullable=False)
     path_type = db.Column(db.Text, nullable=False)  # core | level_path
@@ -56,6 +60,8 @@ class Lesson(db.Model):
             "id": self.id,
             "title": self.title,
             "content": self.content,
+            "content_markdown": self.content_markdown or "",
+            "estimated_minutes": self.estimated_minutes or 5,
             "level": self.level,
             "topic": self.topic,
             "path_type": self.path_type,
@@ -141,3 +147,43 @@ class Progress(db.Model):
     lesson_id = db.Column(db.Integer, db.ForeignKey("lessons.id"))
     completed = db.Column(db.Boolean, default=False)
     completed_at = db.Column(db.DateTime)
+
+
+class PasswordResetToken(db.Model):
+    """A time-limited token that lets a user set a new password.
+
+    Only the SHA-256 hash of the token ever lives in the database, so a
+    leaked database dump never gives an attacker a working reset link.
+    The plaintext token is delivered to the user (by email when SMTP is
+    configured, or by a server-log fallback for dev environments).
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    token_hash = db.Column(db.Text, nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class SeenQuestion(db.Model):
+    """Every question a user has already been served, regardless of session.
+
+    The quiz start route consults this to guarantee a learner never sees the
+    same question twice until the lesson-and-type pool is genuinely exhausted.
+    """
+
+    __tablename__ = "seen_questions"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    question_id = db.Column(
+        db.Integer, db.ForeignKey("questions.id"), nullable=False
+    )
+    seen_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "question_id", name="uq_seen_user_question"),
+    )

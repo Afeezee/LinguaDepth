@@ -5,7 +5,12 @@ import re
 
 from groq import Groq
 
-MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# Single source of truth: pick the model from GROQ_MODEL. Default is the
+# newest Qwen preview currently live on Groq (qwen/qwen3.8-27b) — Llama 4
+# Scout was decommissioned and qwen/qwen3-32b was deprecated 2026-06-17.
+# Keeping the value in one env variable means the next model swap is a
+# one-line change in .env, not a hunt through the codebase.
+MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 _client = None
 

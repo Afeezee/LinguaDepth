@@ -11,6 +11,43 @@ from models import db
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
+def _run_light_migrations():
+    """Idempotent schema top-ups for columns SQLAlchemy's create_all can't add.
+
+    create_all() creates missing tables but never alters existing ones, so any
+    column added to a model after its table already exists in the deployed
+    database has to be introduced manually here. Kept intentionally narrow:
+    only column additions, no data migrations.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(db.engine)
+    dialect = db.engine.dialect.name
+
+    def _has_column(table: str, column: str) -> bool:
+        return column in {c["name"] for c in inspector.get_columns(table)}
+
+    if "lessons" in inspector.get_table_names():
+        with db.engine.begin() as conn:
+            if not _has_column("lessons", "content_markdown"):
+                conn.execute(
+                    text(
+                        "ALTER TABLE lessons ADD COLUMN content_markdown TEXT "
+                        "NOT NULL DEFAULT ''"
+                    )
+                )
+            if not _has_column("lessons", "estimated_minutes"):
+                # SQLite disallows non-constant defaults; a literal integer is fine.
+                conn.execute(
+                    text(
+                        "ALTER TABLE lessons ADD COLUMN estimated_minutes "
+                        "INTEGER DEFAULT 5"
+                    )
+                )
+        # Refresh inspector metadata for any callers later in this process.
+        inspector = inspect(db.engine)
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(get_config())
@@ -41,6 +78,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _run_light_migrations()
 
     @app.errorhandler(404)
     def not_found(e):
