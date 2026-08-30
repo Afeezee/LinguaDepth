@@ -163,8 +163,6 @@ def start_quiz():
         return jsonify({"error": "Lesson not found"}), 404
 
     lesson_quiz_types = json.loads(lesson.quiz_types) or ["objective"]
-    # Only ask for types that actually have questions in the pool. This keeps
-    # the request stable if a lesson lists a type the LLM never filled.
     available_types = {
         row[0]
         for row in db.session.query(Question.type)
@@ -172,7 +170,24 @@ def start_quiz():
         .distinct()
         .all()
     }
+    # Prefer the lesson's assigned types, but if the LLM never produced any
+    # for an assigned type, gracefully fall back to whatever types this
+    # lesson does have questions for — a mistyped quiz is far better than
+    # a dead-end "No questions available" screen. Only 404 if the lesson
+    # is genuinely empty across every type.
     active_types = [t for t in lesson_quiz_types if t in available_types]
+    if not active_types and available_types:
+        logger.warning(
+            "Lesson %s (%s) has assigned quiz_types=%s but only these types "
+            "were seeded: %s — falling back to seeded types.",
+            lesson.id,
+            lesson.title,
+            lesson_quiz_types,
+            sorted(available_types),
+        )
+        # Preserve deterministic ordering (objective, oral, theory) so the
+        # split between the two picked types is stable.
+        active_types = sorted(available_types)[:2]
     if not active_types:
         return jsonify({"error": "No questions available for this lesson"}), 404
 

@@ -47,16 +47,39 @@ def chat_completion(
 
 
 def json_completion(system: str, user_message: str, max_tokens: int = 1024) -> dict:
-    """Run a completion that must return JSON; strip markdown fences if present."""
+    """Run a completion that must return JSON; tolerate the common ways
+    reasoning models like Qwen wrap or precede the actual JSON body.
+
+    Handles: leading ``` fences, `<think>...</think>` reasoning blocks
+    that Qwen 3 emits by default, and extra prose before/after the JSON.
+    Falls back to an empty dict if nothing parseable is found — the caller
+    (``generator.py``) treats an empty dict as "no questions" and retries.
+    """
     raw = chat_completion(
         system,
         [{"role": "user", "content": user_message}],
         max_tokens=max_tokens,
         json_mode=True,
     )
-    # Models sometimes wrap JSON in ```json fences despite instructions
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip())
+    # Strip Qwen 3's <think>…</think> reasoning blocks — they're helpful for
+    # the model but they push the JSON off the start of the response.
+    cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    # Strip ``` code fences if the model added them despite json_mode.
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned).strip()
+    # Grab the outermost {...} block. Greedy match survives nested braces.
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if match:
         cleaned = match.group(0)
-    return json.loads(cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # One retry with a stricter slice: from the first { to the last }
+        # actually in the cleaned string, ignoring anything after.
+        first = cleaned.find("{")
+        last = cleaned.rfind("}")
+        if first != -1 and last > first:
+            try:
+                return json.loads(cleaned[first : last + 1])
+            except json.JSONDecodeError:
+                pass
+        return {}
