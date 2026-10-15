@@ -18,6 +18,18 @@ import sys
 import time
 from pathlib import Path
 
+# How long to pause between lessons by default. Groq's free tier is tight
+# on tokens-per-minute, and 1 s was enough to trip quota blocks mid-run.
+# Three seconds gives the per-minute window room to breathe without
+# meaningfully slowing a successful 89-lesson sweep (adds ~3 min total).
+INTER_LESSON_SLEEP_SECONDS = 3
+
+# Transient-failure retry: 403s on Groq are usually a daily token cap
+# (permanent until the UTC midnight reset) but 429s are a short rate-limit
+# window (seconds). We retry only on the latter.
+MAX_TRANSIENT_RETRIES = 2
+TRANSIENT_RETRY_BACKOFF_SECONDS = 15
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import create_app
@@ -65,16 +77,37 @@ def seed(force: bool = False):
                 f"[{idx}/{total_lessons}] gen   — {lesson.title} "
                 f"({lesson.level}, {quiz_types}, core={is_core}) …"
             )
-            try:
-                questions = generate_questions_for_lesson(
-                    lesson.id,
-                    lesson.topic,
-                    lesson.level,
-                    quiz_types,
-                    is_core=is_core,
-                )
-            except Exception as exc:
-                print(f"[{idx}/{total_lessons}] FAIL  — {lesson.title}: {exc}")
+            questions = []
+            last_error = None
+            for attempt in range(1 + MAX_TRANSIENT_RETRIES):
+                try:
+                    questions = generate_questions_for_lesson(
+                        lesson.id,
+                        lesson.topic,
+                        lesson.level,
+                        quiz_types,
+                        is_core=is_core,
+                    )
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    msg = str(exc)
+                    # Retry only on short-window rate limits (429). A 403
+                    # from Groq is usually a daily cap — retrying wastes
+                    # time and makes no progress until the UTC reset.
+                    if "429" in msg and attempt < MAX_TRANSIENT_RETRIES:
+                        print(
+                            f"[{idx}/{total_lessons}] retry — {lesson.title} "
+                            f"after rate limit (attempt {attempt + 1})"
+                        )
+                        time.sleep(TRANSIENT_RETRY_BACKOFF_SECONDS)
+                        continue
+                    break
+            else:
+                last_error = Exception("exhausted retries")
+
+            if not questions and last_error:
+                print(f"[{idx}/{total_lessons}] FAIL  — {lesson.title}: {last_error}")
                 continue
 
             # If we already have some of this lesson's questions (a partial
@@ -102,7 +135,7 @@ def seed(force: bool = False):
                 f"[{idx}/{total_lessons}] ok    — {lesson.title}: "
                 f"{len(questions)} added ({now}/{expected} total)"
             )
-            time.sleep(1)  # gentle with the API rate limit
+            time.sleep(INTER_LESSON_SLEEP_SECONDS)  # pace below Groq's TPM cap
 
         print(f"Done. Total questions across all lessons: {Question.query.count()}")
 
