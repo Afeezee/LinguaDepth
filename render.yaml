@@ -1,0 +1,60 @@
+# Render Blueprint — deploy this project as a single Dockerised web service.
+# Usage: push this file, then on render.com → New → Blueprint → point at this
+# repo. Render reads the file and provisions what's listed here.
+#
+# Environment variables that MUST be set in the Render dashboard before the
+# first boot (they're intentionally not in this file so no secret ever ends
+# up in git):
+#   DATABASE_URL         Neon's Postgres connection string (postgresql://…)
+#   JWT_SECRET_KEY       Any random 32+ char string
+#   GROQ_API_KEY         Your Groq key
+#   APP_BASE_URL         https://<your-render-service>.onrender.com (no trailing slash)
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+#                        Gmail App password setup (see README)
+#
+# Optional:
+#   GROQ_MODEL           Override the default qwen/qwen3.8-27b
+#   SECRET_KEY           Flask secret; defaults to the JWT secret otherwise
+#   CORS_ORIGINS         Comma-separated list; defaults to the service URL
+
+services:
+  - type: web
+    name: linguadepth
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    # Render pings this path during boot to decide when traffic can route in.
+    # The Flask /api/health endpoint returns 200 OK with {"status": "ok"}.
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Flask runs in production mode here — enables the production config
+      # branch in config.py (no debug_reset_link leakage, etc.).
+      - key: FLASK_ENV
+        value: production
+      # Render provides PORT at runtime; this entry documents it and keeps
+      # the Dockerfile's gunicorn --bind ${PORT:-8080} working as expected.
+      - key: PORT
+        value: "10000"
+      # Everything below is marked `sync: false` so Render shows them as
+      # "needs value" in the dashboard without ever pulling from the repo.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
